@@ -7,6 +7,10 @@ var placeDao = require('../dal/mongo/dao/PlaceDao').placeDao;
 
 var placeController = new Controller("/api/places");
 
+var mapApiCaller = require('../dal/google/MapApiCaller').mapApiCaller;
+
+var util = require('util');
+
 placeController.addAction(new Action(
     'post',
     '/',
@@ -27,6 +31,42 @@ placeController.addAction(new Action(
         catch(exception){
             console.log(exception)
             return new ActionResult(exception, 500).cal();
+        }
+    }
+));
+
+placeController.addAction(new Action(
+    'get',
+    '/selections',
+    async function(req, res){
+        let userCoordinate = req.query.coordinate;
+        let range = req.query.range;
+        try{
+            let places = await placeDao.query({status: 'active'}); 
+
+            let result = [];
+            if(places.length == 0)
+                return new ActionResult({places:result}, 200).cal();
+            
+            let destinations = [];
+            places.forEach(function(place){
+                if(place.googleLatitude!=null && place.googleLongtitude!=null)
+                    destinations.push(util.format("%s,%s",place.googleLatitude, place.googleLongtitude));
+                else if(place.googleFormattedAddress != null)
+                    destinations.push(place.googleFormattedAddress);
+                else
+                    destinations.push("")
+            })
+            let distanceObjects = await mapApiCaller.getDistances(userCoordinate, destinations);
+            distanceObjects.rows[0].elements.forEach(function(distanceObject, index){
+                if(distanceObject.status == "OK" && distanceObject.distance.value <= range)
+                    result.push({place: places[index], distance: distanceObject.distance});                   
+            })
+            return new ActionResult({distances:result, metadata:{total:result.length}}, 200).cal();
+        }
+        catch(exception){
+            console.log(exception);
+            return new ActionResult({error: ["Có lỗi xảy ra"]}, 500).cal();
         }
     }
 ));
@@ -121,5 +161,7 @@ placeController.addAction(new Action(
         }
     }
 ));
+
+
 
 module.exports = placeController;
